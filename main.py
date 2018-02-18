@@ -11,6 +11,10 @@ fileNumber = 1
 ###Parameters for image segmentation###
 RED1 = (45,40,40)
 RED2 = (125,255,255)
+redMask = (RED1, RED2, "red")
+
+print (redMask)
+
 #night mode
 #RED1 = (45,30,30)
 #RED2 = (125,255,255)
@@ -28,7 +32,7 @@ class ROI:
 def findRoiByColour(colourImg, imgField, colourThreshMin, colourThreshMax, exeMode):
     mask = findColorsMask(colourImg, colourThreshMin, colourThreshMax, exeMode)
     picture, contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    roiList = roiDetection(colourImg, contours,imgField,0.1, exeMode)
+    roiList = roiDetection(colourImg, contours,imgField,0.1, exeMode, )
     return roiList
 
 def findColorsMask(img, color1, color2, exeMode):
@@ -44,12 +48,13 @@ def findColorsMask(img, color1, color2, exeMode):
     if (exeMode=="test"): cv2.imshow('mask2', mask)
     return mask
 
-def roiDetection(colourImg, contours, imgField, enhacementFactor, exeMode):
+def roiDetection(colourImg, contours, imgField, enhacementFactor, exeMode, maskColour):
     roiList=[]
     index = 1
     for i in contours:
         x, y, w, h = cv2.boundingRect(i)
         x, y, w, h, signField = enhanceRoi(x,y,w,h,enhacementFactor)
+        newRoi = ROI(x,y,w,h,"red")
         if (signField>6e-4*imgField and signField<6e-2*imgField and (w/h>0.45) and (w/h)<1.5):
             roiList.append([x, y, w, h, signField])
             if (exeMode=="test"):
@@ -116,7 +121,7 @@ def detectRoundSigns(colourImage, roiList, exeMode):
 
         if (wRoi/hRoi)>0.8 and (wRoi/hRoi)<1.2:
             if (exeMode=='test'): print ('roi nr', str(index), 'option 1','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
-            roiListOut.append([xRoi,yRoi,wRoi,hRoi,field])
+            roiOut.append([xRoi,yRoi,wRoi,hRoi,field])
         elif circles is not None and len(circles[0])<3: #if more than 3 circles also false
             if (exeMode=='test'): print ('roi nr', str(index), 'option 2','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
             circles = np.uint16(np.around(circles))
