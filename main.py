@@ -13,8 +13,6 @@ RED1 = (45,40,40)
 RED2 = (125,255,255)
 redMask = (RED1, RED2, "red")
 
-print (redMask)
-
 #night mode
 #RED1 = (45,30,30)
 #RED2 = (125,255,255)
@@ -25,14 +23,21 @@ class ROI:
         self.y = y
         self.w = w
         self.h = h
-        self.imgField = w*h
         self.mask = mask
-        self.shape = "undefined"
         
-def findRoiByColour(colourImg, imgField, colourThreshMin, colourThreshMax, exeMode):
+        self.roiSize = w*h      
+        self.shape = "unknown"
+        self.prediction = "none"
+
+    def showSign(self, image):
+        cv2.putText(image, self.prediction,(self.x + self.w, self.y + 20), cv2.FONT_ITALIC, 1.5, (255,255,255))
+        cv2.circle(image, (self.x + int(self.w/2), self.y + int(self.h/2)), int(self.w/2), (0,255,0), 2)
+        
+def findRoiByColour(colourImg, colourMask, exeMode):
+    colourThreshMin, colourThreshMax, maskType = colourMask
     mask = findColorsMask(colourImg, colourThreshMin, colourThreshMax, exeMode)
     picture, contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    roiList = roiDetection(colourImg, contours,imgField,0.1, exeMode, )
+    roiList = roiDetection(colourImg, contours, 0.1, maskType, exeMode)
     return roiList
 
 def findColorsMask(img, color1, color2, exeMode):
@@ -48,15 +53,16 @@ def findColorsMask(img, color1, color2, exeMode):
     if (exeMode=="test"): cv2.imshow('mask2', mask)
     return mask
 
-def roiDetection(colourImg, contours, imgField, enhacementFactor, exeMode, maskColour):
+def roiDetection(colourImg, contours, enhacementFactor, maskColour, exeMode):
+    imgField = colourImg.shape[0]*colourImg.shape[1]
     roiList=[]
     index = 1
     for i in contours:
         x, y, w, h = cv2.boundingRect(i)
-        x, y, w, h, signField = enhanceRoi(x,y,w,h,enhacementFactor)
-        newRoi = ROI(x,y,w,h,"red")
-        if (signField>6e-4*imgField and signField<6e-2*imgField and (w/h>0.45) and (w/h)<1.5):
-            roiList.append([x, y, w, h, signField])
+        x, y, w, h = enhanceRoi(x,y,w,h,enhacementFactor)
+        newRoi = ROI(x,y,w,h,maskColour)
+        if ((newRoi.roiSize>6e-4*imgField) and (newRoi.roiSize<6e-2*imgField) and (w/h>0.45) and ((w/h)<1.5)):
+            roiList.append(newRoi)
             if (exeMode=="test"):
                 cv2.rectangle(colourImg, (x,y), (x+w,y+h), (255,255,255), 1)
                 cv2.putText(colourImg,str(index),(x+w,y+20), cv2.FONT_ITALIC, 1.5, (255,255,255))
@@ -76,13 +82,7 @@ def enhanceRoi(x,y,w,h,factor):
         y-=int(factor/2*h)
         w*=int(1+factor)
         h*=int(1+factor)
-    signField = w*h
-    return x,y,w,h,signField
-
-def showSign(roi, image, prediction):
-    x,y,w,h,field = roi
-    cv2.putText(image,prediction[0],(x+w,y+20), cv2.FONT_ITALIC, 1.5, (255,255,255))
-    cv2.circle(image, (x+int(w/2),y+int(h/2)), int(w/2), (0,255,0), 2)
+    return x,y,w,h
 
 def showSigns(contours, roiList, img):
     contoursRound = []
@@ -109,7 +109,7 @@ def detectRoundSigns(colourImage, roiList, exeMode):
     roiListOut = []
     index = 1
     for i in roiList:
-        xRoi,yRoi,wRoi,hRoi,field = i
+        xRoi,yRoi,wRoi,hRoi,field = i.x, i.y, i.w, i.h, i.roiSize
         sizeX, sizeY = colourImage.shape[:2]
         roiImg = colourImage[yRoi:yRoi+hRoi,xRoi:xRoi+wRoi]
         grayRoi = cv2.cvtColor(roiImg, cv2.COLOR_BGR2GRAY)
@@ -121,7 +121,9 @@ def detectRoundSigns(colourImage, roiList, exeMode):
 
         if (wRoi/hRoi)>0.8 and (wRoi/hRoi)<1.2:
             if (exeMode=='test'): print ('roi nr', str(index), 'option 1','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
-            roiOut.append([xRoi,yRoi,wRoi,hRoi,field])
+            if circles is not None: i.shape = "circle"
+            else: i.shape = "unknown"
+            roiListOut.append(i)
         elif circles is not None and len(circles[0])<3: #if more than 3 circles also false
             if (exeMode=='test'): print ('roi nr', str(index), 'option 2','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
             circles = np.uint16(np.around(circles))
@@ -141,19 +143,19 @@ def detectRoundSigns(colourImage, roiList, exeMode):
                 if(yCircle+rCircle>hRoi): y2=hRoi
                 else: y2=yCircle+rCircle
 
-                x = int(xRoi + x1)
-                y = int(yRoi + y1)
-                w = int(x2-x1)
-                h = int(y2-y1)
-                field = w*h
+                i.x = int(xRoi + x1)
+                i.y = int(yRoi + y1)
+                i.w = int(x2-x1)
+                i.h = int(y2-y1)
+                i.roiSize = i.w*i.h
+                i.shape = "circle"
 
                 if (exeMode=="test"):
                     cv2.circle(roiImg,(xCircle,yCircle),rCircle,(0,255,0),1)
                     cv2.imshow('detected circles',cv2.resize(roiImg,(64,64)))
                     cv2.waitKey(0)
                     cv2.destroyWindow('detected circles')
-
-                roiListOut.append([x,y,w,h,field])
+                roiListOut.append(i)
         else:
             if (exeMode=='test'): print ('roi nr: ', str(index), 'option 3 - REJECTED', 'param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
             #cv2.imshow('missing circles',cv2.resize(roiImg,(64,64)))
@@ -164,53 +166,6 @@ def detectRoundSigns(colourImage, roiList, exeMode):
             cv2.waitKey(0)
             index+=1
     return roiListOut
-
-def findRoiByShape(grayImg, imgField):
-    proccessed = cv2.GaussianBlur(grayImg, (5,5), 0.8)
-    canny = cv2.Canny(grayImg, 130, 180)
-    picture, contours, hierarchy = cv2.findContours(canny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = roiAreaElimination(imgField, contours)
-    #contoursRound, contoursRect, image = showSigns(contours, colour)
-    
-    cv2.imshow('Canny', canny)
-    cv2.imshow("Capture", image)
-
-    return contoursRound, contoursRect
-
-def findDigits(innerContours, src,):
-    if len(innerContours): 
-            for i in innerContours:
-                b = 3 #Boundary
-                x,y,w,h = cv2.boundingRect(i)
-                cv2.rectangle(signGray,(x-b,y-b),(x+w+b,y+h+b),(0,255,0),1)
-                if (y>b) and (x>b):
-                    number = cv2.resize(signGray[y-b:y+h+b, x-b:x+w+b], (64,64))
-                else:
-                    number = cv2.resize(signGray[y:y+h, x:x+w], (64,64))
-                ret, number = cv2.threshold(number, 50, 255, cv2.THRESH_BINARY_INV)
-                #number = cv2.GaussianBlur(number, (3,3), 0.8)
-
-                kernel = np.ones((3,3),np.uint8)
-                erosion = cv2.erode(number,kernel,iterations = 1)
-
-                cv2.imshow('ero', erosion)
-                cv2.imshow('digit', signColor)
-                number = cv2.resize(erosion, (8,8))
-                number2 = number.reshape(1,64)
-                npNumber = np.zeros(64, dtype=float)
-                for i in range(0, 64):
-                    npNumber[i] = number2[0][i]
-                npNumber = npNumber.reshape(1,-1)
-                npNumberTrans = rbX.transform(npNumber)
-                prediction = clf.predict(npNumberTrans)
-                #print ("Prediction: ", prediction[0])
-                #print ("digit-before transform :", npNumber)
-                #print ("digit-after transform :", npNumberTrans)
-                #plt.imshow(number, cmap=plt.cm.gray_r, interpolation="nearest")
-                #plt.show()
-                speedLimit.append(prediction[0])
-                if len(speedLimit) >= 2: 
-                    print ("Speed limit: ", speedLimit[0],speedLimit[1])
 
 def x_cord_contour(contour):
     if cv2.contourArea(contour) > 10:
@@ -276,20 +231,21 @@ for i in range(len(filenames)):
     print('%s' % filenames[i])
 
     #Preprocessing of image
-    colour = cv2.imread(filenames[i])
-    imgField = colour.shape[0]*colour.shape[1]    
+    colour = cv2.imread(filenames[i]) 
 
     #Finding rois
-    roiList = findRoiByColour(colour.copy(), imgField, RED1, RED2, 'test')
+    roiList = findRoiByColour(colour.copy(), redMask, 'test')
     roiList = detectRoundSigns(colour.copy(), roiList, 'test')
 
     if roiList:
         for i in roiList:
-            x,y,w,h,field = i
+            x,y,w,h,field = i.x, i.y, i.w, i.h, i.roiSize
             sign = colour[y:y+h,x:x+w]
             sign = cv2.resize(colour[y:y+h,x:x+w],(64,64))
             prediction = predictSign(sign,clf,xScaler,hog)
-            if prediction != 'none': showSign(i, colour, prediction)
+            if prediction[0] != 'none':
+                i.prediction = prediction[0]
+                i.showSign(colour)
             cv2.imshow('Detection', colour)
             #cv2.imwrite('new'+str(fileNumber)+'.jpg', sign)
             fileNumber+=1
