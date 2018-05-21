@@ -1,171 +1,245 @@
 import numpy as np
-import cv2, time, sklearn, os, glob
-from sklearn import svm, datasets
-from sklearn.preprocessing import StandardScaler
-from sklearn.externals import joblib
-from hog_svm import loadClassifier, initializeHOG, predictSign
-
-###File number for saving images###
-fileNumber = 1
-
-###Parameters for image segmentation###
-RED1 = (45,40,40)
-RED2 = (125,255,255)
-redMask = (RED1, RED2, "red")
-
-#night mode
-#RED1 = (45,30,30)
-#RED2 = (125,255,255)
+import tensorflow as tf
+import cv2, time, os, glob
+from classification import load_clf_svm, initialize_hog, predict_svm, load_model, predict_tf
+from matplotlib import pyplot as plt
+from random import shuffle
 
 class ROI:
-    def __init__(self, x, y, w, h, mask):
+    def __init__(self, x, y, w, h, mask = 'unknown', shape = 'unknown'):
         self.x = x
         self.y = y
         self.w = w
         self.h = h
         self.mask = mask
         
-        self.roiSize = w*h      
-        self.shape = "unknown"
-        self.prediction = "none"
+        self.roi_size = w*h      
+        self.shape = shape
+        self.prediction = -1
 
-    def showSign(self, image):
-        cv2.putText(image, self.prediction,(self.x + self.w, self.y + 20), cv2.FONT_ITALIC, 1.5, (255,255,255))
-        cv2.circle(image, (self.x + int(self.w/2), self.y + int(self.h/2)), int(self.w/2), (0,255,0), 2)
-        
-def findRoiByColour(colourImg, colourMask, exeMode):
-    colourThreshMin, colourThreshMax, maskType = colourMask
-    mask = findColorsMask(colourImg, colourThreshMin, colourThreshMax, exeMode)
-    picture, contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    roiList = roiDetection(colourImg, contours, 0.1, maskType, exeMode)
-    return roiList
+    def show_sign(self, image):
+        cv2.putText(image, signDesc[str(self.prediction)],(self.x + self.w, self.y + 20), cv2.FONT_ITALIC, 1, (0,255,0))
+        #cv2.circle(image, (self.x + int(self.w/2), self.y + int(self.h/2)), int(self.w/2), (0,255,0), 2)
+        cv2.rectangle(image, (self.x, self.y), (self.x + self.w, self.y + self.h), (0,255,0), 2)
 
-def findColorsMask(img, color1, color2, exeMode):
-    kernel3 = np.ones((3,3),np.uint8)
-    kernel5 = np.ones((5,5),np.uint8)
-    
-    hsv = cv2.cvtColor(cv2.bitwise_not(img), cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, color1, color2)
-    if (exeMode=="test"): cv2.imshow('mask1', mask)
-    mask = cv2.dilate(mask,kernel5,iterations=1)
-    mask = cv2.erode(mask,kernel3,iterations=1)
-    #mask = cv2.erode(mask,kernel,iterations=1)
-    if (exeMode=="test"): cv2.imshow('mask2', mask)
-    return mask
+    def enhance_roi(self,factor):
+        if (self.x-factor/2*self.w)>0 and (self.y-factor/2*self.h)>0: 
+            self.x-=int(factor/2*self.w)
+            self.y-=int(factor/2*self.h)
+            self.w =int(self.w*(1+factor))
+            self.h =int(self.h*(1+factor))
+  
+class color_mask:
+    def __init__(self, thresh1, thresh2, color):
+        self.threshMin = thresh1
+        self.threshMax = thresh2
+        self.type = color
 
-def roiDetection(colourImg, contours, enhacementFactor, maskColour, exeMode):
-    imgField = colourImg.shape[0]*colourImg.shape[1]
-    roiList=[]
-    index = 1
+    def find_color_mask(self, img):
+        kernel3 = np.ones((3,3),np.uint8)
+        kernel5 = np.ones((5,5),np.uint8)
+
+        hsv = cv2.cvtColor(cv2.bitwise_not(img), cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, self.threshMin, self.threshMax)
+
+        #mask2 = np.zeros((mask.shape[0], mask.shape[1]), dtype = np.uint8)
+        #mask right
+        #mask2[int(mask.shape[0]*0.2):int(mask.shape[0]*0.7), int(mask.shape[1]*0.6):int(mask.shape[1]*0.95)] = 255
+        #mask left
+        #mask2[int(mask.shape[0]*0.2):int(mask.shape[0]*0.7), int(mask.shape[1]*0.05):int(mask.shape[1]*0.3)] = 255
+        #mask = cv2.bitwise_and(mask, mask, mask = mask2)
+
+        #point1, point2 = (int(frame.shape[1]*0.6),int(frame.shape[0]*0.1)), (int(frame.shape[1]*0.9),int(frame.shape[0]*0.6)) 
+        mask = cv2.medianBlur(mask, 3)
+        #mask = cv2.dilate(mask,kernel3,iterations=1)
+        #mask = cv2.erode(mask,kernel3,iterations=1)
+        #mask = cv2.erode(mask,kernel,iterations=1)
+        return mask
+
+def get_histogram(img):
+    cv2.imshow('color', img)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV) 
+    hist = cv2.calcHist([hsv], [1], None, [256], [0,255])
+    h = hsv[:,:,0]
+    s = hsv[:,:,1]
+    v = hsv[:,:,2]
+    cv2.imshow('h', h)
+    cv2.imshow('s', s)
+    cv2.imshow('v', v)
+    max = np.max(hist)
+    index = np.argmax(hist)
+    print (index, max)
+    cv2.waitKey(0)
+
+def histogram(path):
+    img = cv2.imread(path, 0)
+    plt.hist(img.ravel(), 256, [0,256])
+    plt.show()
+
+def exclude_contours_1(contours, enhancement_factor, image, exe_mode = "test"):
+    roi_list = []
+    global frame_size
     for i in contours:
         x, y, w, h = cv2.boundingRect(i)
-        x, y, w, h = enhanceRoi(x,y,w,h,enhacementFactor)
-        newRoi = ROI(x,y,w,h,maskColour)
-        if ((newRoi.roiSize>6e-4*imgField) and (newRoi.roiSize<6e-2*imgField) and (w/h>0.45) and ((w/h)<1.5)):
-            roiList.append(newRoi)
-            if (exeMode=="test"):
-                cv2.rectangle(colourImg, (x,y), (x+w,y+h), (255,255,255), 1)
-                cv2.putText(colourImg,str(index),(x+w,y+20), cv2.FONT_ITALIC, 1.5, (255,255,255))
-                print ('roi nr ',str(index), '  w/h', w/h)
-                index+=1
-    if (exeMode=="test"):
-        cv2.imshow('rois', colourImg)
-        cv2.waitKey(0)
-        #cv2.destroyWindow('mask1')
-        #cv2.destroyWindow('mask2')
-        #cv2.destroyWindow('rois')
-    return roiList
+        if ((w*h>4e-4*frame_size) and (w*h<2e-2*frame_size) and (w/h>0.5) and ((w/h)<1.5)):
+            new_roi = ROI(x,y,w,h,'x',"unknown")
+            new_roi.enhance_roi(enhancement_factor)
+            roi_list.append(new_roi)
+            if (exe_mode == "test"): 
+                cv2.rectangle(image, (x, y), (x+w, y+h), (255,255,255), 1)
+    cv2.imshow("Contours detected by color", image)
+    if (exe_mode == 'test'): cv2.waitKey(0)
+    return roi_list
 
-def enhanceRoi(x,y,w,h,factor):
-    if (x-factor/2*w)>0 and (y-factor/2*h)>0: 
-        x-=int(factor/2*w)
-        y-=int(factor/2*h)
-        w*=int(1+factor)
-        h*=int(1+factor)
-    return x,y,w,h
-
-def showSigns(contours, roiList, img):
-    contoursRound = []
-    contoursRect = []
-    image = img.copy()
-
-    for i in range (len(contours)):
-        arcLength = cv2.arcLength(contours[i], True)
-        approx = cv2.approxPolyDP(contours[i], 0.01*arcLength, True)
-        x,y,w,h,field = roiList[i]
-        
-        if (len(approx)>8 and len(approx)<30):
-            cv2.putText(image,"Circle",(x+w,y+20), cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255))
-            cv2.circle(image, (x+int(w/2),y+int(h/2)), int(w/2), (0,255,0), 2)
-            contoursRound.append(contours[i])     
-        elif (len(approx)>3 and len(approx)<8):
-            cv2.putText(image,"Rectangle",(x+w,y+20), cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255))
-            cv2.rectangle(image,(x,y),(x+w,y+h),(0,255,0),2)
-            contoursRect.append(contours[i])
-
-    return contoursRound, contoursRect, image
-
-def detectRoundSigns(colourImage, roiList, exeMode):
-    roiListOut = []
-    index = 1
-    for i in roiList:
-        xRoi,yRoi,wRoi,hRoi,field = i.x, i.y, i.w, i.h, i.roiSize
-        sizeX, sizeY = colourImage.shape[:2]
-        roiImg = colourImage[yRoi:yRoi+hRoi,xRoi:xRoi+wRoi]
-        grayRoi = cv2.cvtColor(roiImg, cv2.COLOR_BGR2GRAY)
-        if (exeMode=='test'): 
-            cv2.imshow('roi', grayRoi)
-        
-        #circles = cv2.HoughCircles(grayRoi,cv2.HOUGH_GRADIENT,dp=1,minDist=5,param1=40,param2=int(wRoi*hRoi/100),minRadius=int(wRoi*0.25),maxRadius=int(wRoi/2))
-        circles = cv2.HoughCircles(grayRoi,cv2.HOUGH_GRADIENT,dp=1,minDist=5,param1=40,param2=10,minRadius=int(wRoi*0.25),maxRadius=int(wRoi/2))
-
-        if (wRoi/hRoi)>0.8 and (wRoi/hRoi)<1.2:
-            if (exeMode=='test'): print ('roi nr', str(index), 'option 1','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
-            if circles is not None: i.shape = "circle"
-            else: i.shape = "unknown"
-            roiListOut.append(i)
-        elif circles is not None and len(circles[0])<3: #if more than 3 circles also false
-            if (exeMode=='test'): print ('roi nr', str(index), 'option 2','param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
-            circles = np.uint16(np.around(circles))
-            for j in circles[0,:]:
-                if (exeMode=='test'): 
-                    roiImgCopy = roiImg.copy()
-                    cv2.circle(roiImgCopy,(j[0],j[1]),j[2],(0,255,0),1)
-                xCircle, yCircle = j[:2]
-                rCircle = int(j[2]*1.2)
-                
-                if (xCircle-rCircle<0): x1=0 
-                else: x1=xCircle-rCircle
-                if (xCircle+rCircle>wRoi): x2=wRoi
-                else: x2=xCircle+rCircle
-                if(yCircle-rCircle<0): y1=0
-                else: y1=yCircle-rCircle
-                if(yCircle+rCircle>hRoi): y2=hRoi
-                else: y2=yCircle+rCircle
-
-                i.x = int(xRoi + x1)
-                i.y = int(yRoi + y1)
-                i.w = int(x2-x1)
-                i.h = int(y2-y1)
-                i.roiSize = i.w*i.h
-                i.shape = "circle"
-
-                if (exeMode=="test"):
-                    cv2.circle(roiImg,(xCircle,yCircle),rCircle,(0,255,0),1)
-                    cv2.imshow('detected circles',cv2.resize(roiImg,(64,64)))
+def exclude_contours_2(contours, parent_roi, enhancement_factor, image, exe_mode = "test"):
+    roi_list_out = []
+    global frame_size
+    for i in contours:
+        x, y, w, h = cv2.boundingRect(i)
+        if ((w*h>7e-4*frame_size) and (w*h<6e-2*frame_size) and (w/h>0.45) and ((w/h)<1.5)):
+            new_roi = ROI(x,y,w,h,'x',"unknown")
+            new_roi.enhance_roi(enhancement_factor)
+            
+            arcLength = cv2.arcLength(i, True)
+            approx = cv2.approxPolyDP(i, 0.02*arcLength, True)
+            if (len(approx)>10 and len(approx)<18):
+                print ('circle ', len(approx))
+                cv2.drawContours(image, i, -1, (255,0,0), 2)
+                if (exe_mode == "test"): 
+                    cv2.rectangle(image, (x, y), (x+w, y+h), (255,255,255), 1)
+                    cv2.imshow("Contours detected", cv2.resize(image, (64,64)))
                     cv2.waitKey(0)
-                    cv2.destroyWindow('detected circles')
-                roiListOut.append(i)
-        else:
-            if (exeMode=='test'): print ('roi nr: ', str(index), 'option 3 - REJECTED', 'param2: ',wRoi*hRoi/100, 'ratio: ', wRoi/hRoi)
-            #cv2.imshow('missing circles',cv2.resize(roiImg,(64,64)))
-            #cv2.waitKey(0)
-            #cv2.destroyWindow('missing circles')
-        #cv2.drawContours(col,contours,-1,(255,0,0),1)
-        if (exeMode=='test'):
+                new_rois = extract_shapes([new_roi], parent_roi)
+                roi_list_out.extend(new_rois)
+            elif (len(approx)>3 and len(approx)<10):
+                print ('rectangle', len(approx))
+            elif (len(approx)<=3):
+                print ('triangle', len(approx))
+            else:
+                print ('no fucking idea', len(approx))
+    return roi_list_out
+
+def find_roi_by_color(colorImg, color_mask_obj, exe_mode = 'test'):
+    global frame_size
+    roi_list = []
+
+    mask = color_mask_obj.find_color_mask(colorImg)
+    picture, contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.imshow("Contours detected by color", mask)
+    roi_list = exclude_contours_1(contours, 0.2, mask, exe_mode)
+
+    if (exe_mode == "test"): print ("Number of color roi: ", len(roi_list))
+    return roi_list
+
+def detect_shapes(color_img, roi_list, exe_mode = 'test'):
+    circles_list = []
+    for roi in roi_list:
+        x_roi,y_roi,w_roi,h_roi,field = roi.x, roi.y, roi.w, roi.h, roi.roi_size
+        roi_img = color_img[y_roi:y_roi+h_roi,x_roi:x_roi+w_roi]
+        roi_img = cv2.resize(roi_img, (64,64))
+        roi_img_copy = roi_img.copy()
+
+        gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+        
+        #gauss = cv2.GaussianBlur(gray, (3,3), sigmaX = 0.5, sigmaY = 0.5)
+        canny = cv2.Canny(gray, 0, 220)
+
+        if (exe_mode == "test"): 
+            cv2.imshow('color', cv2.resize(roi_img, (64,64)))
+            cv2.imshow('gray', cv2.resize(gray, (64,64)))
+            cv2.imshow('canny', cv2.resize(canny, (64,64)))
             cv2.waitKey(0)
-            index+=1
-    return roiListOut
+        picture, contours, hierarchy = cv2.findContours(canny, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        roi_list_out = exclude_contours_2(contours, roi, 0.4, roi_img_copy, exe_mode)
+        #circles_list.extend(roi_list_out)
+    return roi_list_out
+
+def detect_round_signs(color_image, roi_list, exe_mode = 'test'):
+    roi_list_out = []
+    for roi in roi_list:
+        x_roi,y_roi,w_roi,h_roi,field = roi.x, roi.y, roi.w, roi.h, roi.roi_size
+        roi_img = color_image[y_roi:y_roi+h_roi,x_roi:x_roi+w_roi]
+        roi_img_copy = roi_img.copy()
+        gray_roi = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+        #gray_roi = cv2.GaussianBlur(gray_roi, (3,3), sigmaX = 1, sigmaY = 1)
+
+        #Before
+        #circles = cv2.HoughCircles(gray_roi,cv2.HOUGH_GRADIENT,dp=1,minDist=int(w_roi/3),param1=50,param2=w_roi*h_roi/100,minRadius=int(w_roi*0.45),maxRadius=int(w_roi/2))
+        min_dim = min(roi_img.shape[0], roi_img.shape[1])
+        max_dim = max(roi_img.shape[0], roi_img.shape[1])
+        #circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=self.hMin.value, param1=self.sMin.value, param2=self.sMax.value, minRadius=int(self.vMin.value), maxRadius=int(self.vMax.value))
+        circles = cv2.HoughCircles(gray_roi, cv2.HOUGH_GRADIENT, dp=1, minDist=int(max_dim*0.25), param1=14, param2=33, minRadius=int(min_dim*0.2), maxRadius=int(min_dim*0.55))
+        #circles = cv2.HoughCircles(gray_roi,cv2.HOUGH_GRADIENT,dp=1,minDist=int(w_roi/4),param1=50,param2=15,minRadius=int(w_roi*0.2))#,maxRadius=int(w_roi/2))
+
+        if (exe_mode=='test'): 
+            cv2.imshow('ROI blurred', cv2.resize(gray_roi, (64,64)))
+            if circles is not None: 
+                print("Number of detected circles: ", circles.shape[1], '`n')
+                #for circle in circles:
+                #    cv2.circle(roi_img_copy, (circle[0], circle[1]), circle[2], (255,0,0), 1)
+                #cv2.imshow("Detected circles", cv2.resize(roi_img_copy, (64,64)))
+            
+        if (w_roi/h_roi)>0.7 and (w_roi/h_roi)<1.2:
+            if (exe_mode=='test'): print ('Ratio ok', 'param2: ',w_roi*h_roi/100, 'ratio: ', np.around(w_roi/h_roi,2))
+            if circles is not None and len(circles[0])<=5: #if more than 5 circles also false 
+                new_rois = extract_circles_from_roi(roi, circles, roi_img.copy(), color_image, exe_mode)
+                roi_list_out.extend(new_rois)
+            else: 
+                roi.shape = "unknown"
+                roi_list_out.append(roi)
+        elif circles is not None and len(circles[0])<=10: #if more than 5 circles also false
+            if (exe_mode=='test'): print ('Ratio nok', 'param2: ',w_roi*h_roi/100, 'ratio: ', np.around(w_roi/h_roi,2))
+            new_rois = extract_circles_from_roi(roi, circles, roi_img.copy(), color_image, exe_mode)
+            roi_list_out.extend(new_rois)
+        else:
+            if (exe_mode=='test'): print ('No regions detected', 'param2: ',w_roi*h_roi/100, 'ratio: ', np.around(w_roi/h_roi,2))
+        if (exe_mode == 'test'): cv2.waitKey(0)
+        cv2.destroyWindow("Detected circles")
+        cv2.destroyWindow("ROI blurred")
+    return roi_list_out
+
+def extract_shapes(child_roi_list, parent_roi):
+    roi_list_out = []
+    for roi in child_roi_list:
+        new_roi = ROI(roi.x+parent_roi.x, roi.y+parent_roi.y, roi.w, roi.h)
+        roi_list_out.append(new_roi)
+    return roi_list_out
+
+def extract_circles_from_roi(roi, circles, roi_img, colorImg, exe_mode = 'test'):
+    roi_list_out = []
+    circles = np.uint16(np.around(circles))
+    for circle in circles[0,:]:
+        xCircle, yCircle = circle[:2]
+        #roi extention by factor of 1.44 (1.2*1.2)
+        rCircle = int(circle[2]*1.2)
+               
+        if (xCircle-rCircle<0): x1=0 
+        else: x1=xCircle-rCircle
+        if (xCircle+rCircle>roi.w): x2=roi.w
+        else: x2=xCircle+rCircle
+        if(yCircle-rCircle<0): y1=0
+        else: y1=yCircle-rCircle
+        if(yCircle+rCircle>roi.h): y2=roi.h
+        else: y2=yCircle+rCircle
+
+        xNew = int(roi.x + x1)
+        yNew = int(roi.y + y1)
+        wNew = int(x2-x1)
+        hNew = int(y2-y1)
+
+        new_roi = ROI(xNew, yNew, wNew, hNew, roi.mask, roi.shape)
+
+        if (exe_mode=='test'):
+            copy = roi_img.copy()
+            cv2.circle(copy,(xCircle,yCircle),rCircle,(0,255,0),1)
+            cv2.imshow("detected circles", cv2.resize(copy, (64,64)))
+            cv2.imshow('roi after circles detection',cv2.resize(colorImg[yNew:yNew+hNew, xNew:xNew+wNew],(64,64)))
+            cv2.waitKey(0)
+            cv2.destroyWindow('detected circles')
+    
+        roi_list_out.append(new_roi)
+    if (exe_mode=='test'): print ("Number of detected circles: ", len(roi_list_out))
+    return roi_list_out
 
 def x_cord_contour(contour):
     if cv2.contourArea(contour) > 10:
@@ -175,85 +249,111 @@ def x_cord_contour(contour):
     else:
         return (0)
 
-###Parameter for performance test###
-start = time.time()
-camera = cv2.VideoCapture(0)
-out = cv2.VideoWriter('output.avi',-1, 20.0, (640,480))
+def detect_signs(frame, exe_mode = "normal"):
+    global red_mask, yellow_mask, blue_mask, file_number, sess, input, output
+    cv2.imshow('Detection', frame)
+    frame_copy = frame.copy()
+    before = time.time()
 
-directory_in_str = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/SignRecognition/snapshots/"
-#directory_in_str = "C:/Users/Michau/Desktop/GermanTrafficSigns/SpeedLimits/20/"
+    roi_list = []
+    roi_list_red = find_roi_by_color(frame, red_mask, exe_mode)
+    #roi_list_yellow = find_roi_by_color(frame, yellow_mask)
+    #roi_list_blue = find_roi_by_color(frame, blue_mask, exe_mode)
 
-hog = initializeHOG()
-clf, xScaler = loadClassifier()
+    roi_list.extend(roi_list_red)
+    #roi_list.extend(roi_list_blue)
+    #roi_list.extend(roi_list_yellow)
 
-before = time.time()
-while(False):
-    # Capture frame-by-frame
-    ret, frame = camera.read()
-    #fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    
-    #frame = cv2.resize(frame, (int(frame.shape[1]/2),int(frame.shape[0]/2)))
-    imgField = frame.shape[0]*frame.shape[1]    
+    roi_list = detect_round_signs(frame, roi_list, exe_mode)
+    #roi_list = detect_shapes(frame, roi_list)
 
-    #Finding rois
-    roiList = findRoiByColour(frame, imgField, RED1, RED2)
-    roiLits = detectRoundSigns(frame, roiList)
-
-    if roiList:
-        for i in roiList:
-            x,y,w,h,field = i
-            prediction = predictSign(cv2.resize(frame[y:y+h,x:x+w],(64,64)),clf,xScaler,hog)
-            if prediction != 'none': showSign(i, frame, prediction)
-            #cv2.imwrite('new'+str(fileNumber)+'.jpg',signColor)
-            fileNumber+=1
-            
+    for i in roi_list:
+        x,y,w,h = i.x, i.y, i.w, i.h
+        roi_img = frame_copy[y:y+h,x:x+w]
+        resized = cv2.resize(roi_img,(64,64))
+        resized2 = cv2.resize(roi_img,(64,64))
+        class_svm = predict_svm(resized,clf,xScaler,hog)
+        class_tf, value_tf = predict_tf(sess, input, output, resized2)
+        print ('tf :', class_tf, value_tf)
+        print ('svm :', class_svm)
+        if True:#(class_svm[0]!= 9): 
+            i.prediction = class_svm[0]
+            i.show_sign(frame)
+            if (class_svm[0]!=9):
+                cv2.imwrite('C:/Users/Michau/Desktop/new_signs/'+str(file_number)+'.jpg', roi_img)
+            else:
+                cv2.imwrite('C:/Users/Michau/Desktop/new_none/'+str(file_number)+'.jpg', roi_img)
+            file_number+=1
+    cv2.destroyWindow('color')
+    cv2.destroyWindow('canny')
+    cv2.destroyWindow('Contours detected')
     cv2.imshow('Detection', frame)
     print ("execution", time.time()-before)
-    out.write(frame)
-   
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    print ("______________________________________________________")
+    if (exe_mode == 'test'): cv2.waitKey(0)
+
+##############################################################################################################
+
+signDesc = {'0':'20', '1':'30', '2':'40', '3':'50', '4':'60', '5':'70', '6':'80', '7':'100', '8':'120', '9':'none', '10':'B-25'}
+
+file_number = 999
+directory_in_str = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/snapshots/"
+directory_in_str = "C:/Users/Michau/Desktop/validation/"
+#directory_in_str = "C:/Users/Michau/Desktop/GermanTrafficSigns/FullIJCNN2013/frames/"
+
+###Color masks for image segmentation###
+#red_mask = color_mask((35,25,140), (100,180,245), "red")
+red_mask = color_mask((70,9,130), (97,255,255), "red")
+yellow_mask = color_mask((100,24,140), (110,255,255), "yellow")
+blue_mask = color_mask((18,30,193), (22,255,255), "blue")
+
+#SVM
+hog = initialize_hog()
+clf, xScaler = load_clf_svm()
+
+#TENSORFLOW
+sess, graph, input, output = load_model()
+
+##############################################################################################################
+'''#Wideo
+camera = cv2.VideoCapture('day9.wmv')
+ret, frame = camera.read()
+
+while(ret):
+    # Capture frame-by-frame
+    #ret, frame = camera.read()
+    ret, frame = camera.read()
+    frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
+    frame_size = frame.shape[0]*frame.shape[1]
+    #ret, frame = camera.read()
+    before = time.time()
+    if ret: detect_signs(frame)
+    if cv2.waitKey(1) & 0xFF == ord('q') or not ret:
         break
-    
-# When everything done, release the capture 
+
 camera.release()
-out.release()
+'''
+##############################################################################################################
 
+#Snapshoty
 filenames = []
-
 directory = os.fsencode(directory_in_str)
 for file in os.listdir(directory):
     filename = os.fsdecode(file)
-    if filename.endswith(".jpg") or filename.endswith(".png"): 
+    if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".ppm"): 
         filenames.append(os.fsdecode(directory+file))
+#shuffle(filenames)
 
-fileNumber = 0
-for i in range(len(filenames)):
-    print('%s' % filenames[i])
+#filenames = ["C:/Users/Michau/Desktop/GermanTrafficSigns/FullIJCNN2013/frames/00444.ppm"]
 
-    #Preprocessing of image
-    colour = cv2.imread(filenames[i]) 
+for file in filenames:
+    print('%s' % file)
+    frame = cv2.imread(file)
+    print (frame.shape)
+    if (frame.shape[1]>1000): frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
+    frame_size = frame.shape[0]*frame.shape[1]
+    detect_signs(frame)
+    #cv2.waitKey(0)
 
-    #Finding rois
-    roiList = findRoiByColour(colour.copy(), redMask, 'test')
-    roiList = detectRoundSigns(colour.copy(), roiList, 'test')
-
-    if roiList:
-        for i in roiList:
-            x,y,w,h,field = i.x, i.y, i.w, i.h, i.roiSize
-            sign = colour[y:y+h,x:x+w]
-            sign = cv2.resize(colour[y:y+h,x:x+w],(64,64))
-            prediction = predictSign(sign,clf,xScaler,hog)
-            if prediction[0] != 'none':
-                i.prediction = prediction[0]
-                i.showSign(colour)
-            cv2.imshow('Detection', colour)
-            #cv2.imwrite('new'+str(fileNumber)+'.jpg', sign)
-            fileNumber+=1
-    else:
-        cv2.imshow('NO-Detection', colour)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-finish = time.time()
-print("Execution time:",finish-start)
-cv2.waitKey(0)
+##############################################################################################################
+   
