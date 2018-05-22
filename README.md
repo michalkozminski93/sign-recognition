@@ -7,6 +7,9 @@ Traffic sign dataset: http://btsd.ethz.ch/shareddata/, extended by own sings' da
 
 To be done:
 Hyperparameters setting for better performance.
+
 Moving Tensorflow recognition to cloud services.
+
 Comparison between results achieved by SVM classifier and TensorFlow Neural Network.
+
 Kivy framework for Android app.
