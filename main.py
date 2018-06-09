@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import cv2, time, os, glob
-from classification import load_clf_svm, initialize_hog, predict_svm, load_model, predict_tf
+from classification import load_clf_svm, initialize_hog, predict_svm, load_model, predict_tf, return_model_tf
 from matplotlib import pyplot as plt
 from random import shuffle
 
@@ -18,7 +18,7 @@ class ROI:
         self.prediction = -1
 
     def show_sign(self, image):
-        cv2.putText(image, signDesc[str(self.prediction)],(self.x + self.w, self.y + 20), cv2.FONT_ITALIC, 1, (0,255,0))
+        cv2.putText(image, sign_desc[str(self.prediction)],(self.x + self.w, self.y + 20), cv2.FONT_ITALIC, 1, (0,255,0))
         #cv2.circle(image, (self.x + int(self.w/2), self.y + int(self.h/2)), int(self.w/2), (0,255,0), 2)
         cv2.rectangle(image, (self.x, self.y), (self.x + self.w, self.y + self.h), (0,255,0), 2)
 
@@ -87,7 +87,7 @@ def exclude_contours_1(contours, enhancement_factor, image, exe_mode = "test"):
             roi_list.append(new_roi)
             if (exe_mode == "test"): 
                 cv2.rectangle(image, (x, y), (x+w, y+h), (255,255,255), 1)
-    cv2.imshow("Contours detected by color", image)
+    #cv2.imshow("Contours detected by color", image)
     if (exe_mode == 'test'): cv2.waitKey(0)
     return roi_list
 
@@ -125,7 +125,7 @@ def find_roi_by_color(colorImg, color_mask_obj, exe_mode = 'test'):
 
     mask = color_mask_obj.find_color_mask(colorImg)
     picture, contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.imshow("Contours detected by color", mask)
+    cv2.imshow("Contours detected by color :"+ color_mask_obj.type, mask)
     roi_list = exclude_contours_1(contours, 0.2, mask, exe_mode)
 
     if (exe_mode == "test"): print ("Number of color roi: ", len(roi_list))
@@ -140,8 +140,6 @@ def detect_shapes(color_img, roi_list, exe_mode = 'test'):
         roi_img_copy = roi_img.copy()
 
         gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-        
-        #gauss = cv2.GaussianBlur(gray, (3,3), sigmaX = 0.5, sigmaY = 0.5)
         canny = cv2.Canny(gray, 0, 220)
 
         if (exe_mode == "test"): 
@@ -151,7 +149,6 @@ def detect_shapes(color_img, roi_list, exe_mode = 'test'):
             cv2.waitKey(0)
         picture, contours, hierarchy = cv2.findContours(canny, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         roi_list_out = exclude_contours_2(contours, roi, 0.4, roi_img_copy, exe_mode)
-        #circles_list.extend(roi_list_out)
     return roi_list_out
 
 def detect_round_signs(color_image, roi_list, exe_mode = 'test'):
@@ -161,15 +158,10 @@ def detect_round_signs(color_image, roi_list, exe_mode = 'test'):
         roi_img = color_image[y_roi:y_roi+h_roi,x_roi:x_roi+w_roi]
         roi_img_copy = roi_img.copy()
         gray_roi = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-        #gray_roi = cv2.GaussianBlur(gray_roi, (3,3), sigmaX = 1, sigmaY = 1)
 
-        #Before
-        #circles = cv2.HoughCircles(gray_roi,cv2.HOUGH_GRADIENT,dp=1,minDist=int(w_roi/3),param1=50,param2=w_roi*h_roi/100,minRadius=int(w_roi*0.45),maxRadius=int(w_roi/2))
         min_dim = min(roi_img.shape[0], roi_img.shape[1])
         max_dim = max(roi_img.shape[0], roi_img.shape[1])
-        #circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=self.hMin.value, param1=self.sMin.value, param2=self.sMax.value, minRadius=int(self.vMin.value), maxRadius=int(self.vMax.value))
         circles = cv2.HoughCircles(gray_roi, cv2.HOUGH_GRADIENT, dp=1, minDist=int(max_dim*0.25), param1=14, param2=33, minRadius=int(min_dim*0.2), maxRadius=int(min_dim*0.55))
-        #circles = cv2.HoughCircles(gray_roi,cv2.HOUGH_GRADIENT,dp=1,minDist=int(w_roi/4),param1=50,param2=15,minRadius=int(w_roi*0.2))#,maxRadius=int(w_roi/2))
 
         if (exe_mode=='test'): 
             cv2.imshow('ROI blurred', cv2.resize(gray_roi, (64,64)))
@@ -250,18 +242,19 @@ def x_cord_contour(contour):
         return (0)
 
 def detect_signs(frame, exe_mode = "normal"):
-    global red_mask, yellow_mask, blue_mask, file_number, sess, input, output
+    global red_mask, yellow_mask, blue_mask, file_number, sess, input, output, is_training
+
     cv2.imshow('Detection', frame)
     frame_copy = frame.copy()
-    before = time.time()
+    start = time.time()
 
     roi_list = []
     roi_list_red = find_roi_by_color(frame, red_mask, exe_mode)
     #roi_list_yellow = find_roi_by_color(frame, yellow_mask)
-    #roi_list_blue = find_roi_by_color(frame, blue_mask, exe_mode)
+    roi_list_blue = find_roi_by_color(frame, blue_mask, exe_mode)
 
     roi_list.extend(roi_list_red)
-    #roi_list.extend(roi_list_blue)
+    roi_list.extend(roi_list_blue)
     #roi_list.extend(roi_list_yellow)
 
     roi_list = detect_round_signs(frame, roi_list, exe_mode)
@@ -273,87 +266,107 @@ def detect_signs(frame, exe_mode = "normal"):
         resized = cv2.resize(roi_img,(64,64))
         resized2 = cv2.resize(roi_img,(64,64))
         class_svm = predict_svm(resized,clf,xScaler,hog)
-        class_tf, value_tf = predict_tf(sess, input, output, resized2)
+        class_tf, value_tf = predict_tf(sess, input, output, is_training, resized2)
         print ('tf :', class_tf, value_tf)
         print ('svm :', class_svm)
-        if True:#(class_svm[0]!= 9): 
+        if (class_svm[0] != 27): 
             i.prediction = class_svm[0]
             i.show_sign(frame)
-            if (class_svm[0]!=9):
-                cv2.imwrite('C:/Users/Michau/Desktop/new_signs/'+str(file_number)+'.jpg', roi_img)
-            else:
-                cv2.imwrite('C:/Users/Michau/Desktop/new_none/'+str(file_number)+'.jpg', roi_img)
-            file_number+=1
+            #if (class_svm[0]!=9):
+            #    cv2.imwrite('C:/Users/Michau/Desktop/new_signs/ax'+str(file_number)+'.jpg', roi_img)
+            #else:
+            #cv2.imwrite('C:/Users/Michau/Desktop/new_none/x'+str(file_number)+'.jpg', roi_img)
+            #file_number+=1
+    execution_time = time.time()-start
     cv2.destroyWindow('color')
     cv2.destroyWindow('canny')
     cv2.destroyWindow('Contours detected')
     cv2.imshow('Detection', frame)
-    print ("execution", time.time()-before)
+    print ("execution", execution_time)
     print ("______________________________________________________")
     if (exe_mode == 'test'): cv2.waitKey(0)
-
+    return execution_time
+    
 ##############################################################################################################
-
-signDesc = {'0':'20', '1':'30', '2':'40', '3':'50', '4':'60', '5':'70', '6':'80', '7':'100', '8':'120', '9':'none', '10':'B-25'}
+#Signs description dictionary
+sign_desc = {'0':'20', '1':'30', '2':'40', '3':'50', '4':'60', '5':'70', '6':'80', '7':'90', '8':'100', '9':'110', '10':'120', '11':'Zakaz wyprz.', '12':'Ustap piersz.',
+            '13':'Stop', '14':'Zakaz wjazdu', '15':'Zakaz ruchu', '16':'Zakaz w lewo', '17':'Zakaz w prawo', '18':'Niebezp. lewo', '19':'Niebezp. prawo', '20':'Zwezenie',
+            '21':'Nakaz w prawo', '22':'Nakaz w lewo', '23':'Nakaz prosto', '24':'Z prawej', '25':'Z lewej', '26':'Rondo', '27':'Tlo'}
 
 file_number = 999
-directory_in_str = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/snapshots/"
-directory_in_str = "C:/Users/Michau/Desktop/validation/"
-#directory_in_str = "C:/Users/Michau/Desktop/GermanTrafficSigns/FullIJCNN2013/frames/"
+dir_snapshots = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/snapshots/"
+dir_validation_img = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/validation_img/"
+dir_tf_model = "C:/Users/Michau/Desktop/tf_model/"
 
-###Color masks for image segmentation###
-#red_mask = color_mask((35,25,140), (100,180,245), "red")
+###Color masks for image segmentation
 red_mask = color_mask((70,9,130), (97,255,255), "red")
 yellow_mask = color_mask((100,24,140), (110,255,255), "yellow")
 blue_mask = color_mask((18,30,193), (22,255,255), "blue")
+
+#Parameters for TF classification
+img_size = 32
+num_channels = 1
 
 #SVM
 hog = initialize_hog()
 clf, xScaler = load_clf_svm()
 
 #TENSORFLOW
-sess, graph, input, output = load_model()
+start = time.time()
+graph = tf.Graph()
+with graph.as_default():
+    input = tf.placeholder(tf.float32, shape=[None, img_size, img_size, num_channels])
+    is_training = tf.constant(False)
+    with tf.variable_scope('cnn'):
+        layer_out, weights_out = return_model_tf(input, is_training)
+        output = tf.nn.softmax(layer_out)
 
-##############################################################################################################
-'''#Wideo
-camera = cv2.VideoCapture('day9.wmv')
-ret, frame = camera.read()
+with tf.Session(graph = graph) as sess:
+    sess.run(tf.global_variables_initializer())
+    tf.train.Saver().restore(sess, tf.train.latest_checkpoint(dir_tf_model))
+    print ("Tensorflow model loading time: ", time.time()-start)
 
-while(ret):
-    # Capture frame-by-frame
-    #ret, frame = camera.read()
+    ##############################################################################################################
+    '''#Wideo
+    camera = cv2.VideoCapture('afternoon1.wmv')
     ret, frame = camera.read()
-    frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
-    frame_size = frame.shape[0]*frame.shape[1]
-    #ret, frame = camera.read()
-    before = time.time()
-    if ret: detect_signs(frame)
-    if cv2.waitKey(1) & 0xFF == ord('q') or not ret:
-        break
+    ret, frame = camera.read()
 
-camera.release()
-'''
-##############################################################################################################
+    while(ret):
+        # Capture frame-by-frame
+        #ret, frame = camera.read()
+        ret, frame = camera.read()
+        frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
+        frame_size = frame.shape[0]*frame.shape[1]
+        #ret, frame = camera.read()
+        before = time.time()
+        if ret: detect_signs(frame)
+        if cv2.waitKey(1) & 0xFF == ord('q') or not ret:
+            break
 
-#Snapshoty
-filenames = []
-directory = os.fsencode(directory_in_str)
-for file in os.listdir(directory):
-    filename = os.fsdecode(file)
-    if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".ppm"): 
-        filenames.append(os.fsdecode(directory+file))
-#shuffle(filenames)
+    camera.release()
+    '''
+    ##############################################################################################################
+    #Snapshoty
+    filenames = []
+    dir = os.fsencode(dir_validation_img)
+    for file in os.listdir(dir):
+        filename = os.fsdecode(file)
+        if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".ppm"): 
+            filenames.append(os.fsdecode(dir+file))
+    #shuffle(filenames)
+    detection_time = []
 
-#filenames = ["C:/Users/Michau/Desktop/GermanTrafficSigns/FullIJCNN2013/frames/00444.ppm"]
-
-for file in filenames:
-    print('%s' % file)
-    frame = cv2.imread(file)
-    print (frame.shape)
-    if (frame.shape[1]>1000): frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
-    frame_size = frame.shape[0]*frame.shape[1]
-    detect_signs(frame)
-    #cv2.waitKey(0)
-
-##############################################################################################################
+    for file in filenames:
+        print('%s' % file)
+        frame = cv2.imread(file)
+        print (frame.shape)
+        if (frame.shape[1]>1000): frame = cv2.resize(frame, (int(frame.shape[1]*0.5), int(frame.shape[0]*0.5)))
+        frame_size = frame.shape[0]*frame.shape[1]
+        detection_time.append(detect_signs(frame, 'normal'))
+        cv2.waitKey(0)
+    
+    print('Average execution time: ', np.mean(np.asarray(detection_time)))
+    print('Standard deviation for execution time: ', np.std(np.asarray(detection_time)))
+    ##############################################################################################################
    
