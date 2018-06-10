@@ -1,5 +1,5 @@
 '''Functions for SVM classification, Tensorflow classification, HOG descriptor'''
-import cv2, time, os, glob
+import cv2, time, os, glob, random
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +11,7 @@ from sklearn.externals import joblib
 from sklearn.model_selection import cross_val_score, cross_val_predict, StratifiedKFold, train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from skimage.feature import hog
-from skimage import data, exposure
+from skimage import data, exposure, transform, util
 
 train_test_dir = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/train_test/"
 val_path = "C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/validation/"
@@ -21,6 +21,15 @@ sign_desc = {'0':'20', '1':'30', '2':'40', '3':'50', '4':'60', '5':'70', '6':'80
             '21':'Nakaz w lewo', '22':'Nakaz w prawo', '23':'Nakaz prosto', '24':'Z prawej', '25':'Z lewej', '26':'Rondo', '27':'Tlo'}
 
 #########################################################################
+def get_images_paths(path, random=True):
+    filenames = []
+    dir = os.fsencode(path)
+    for file in os.listdir(dir):
+        filename = os.fsdecode(file)
+        if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".ppm"): 
+            filenames.append(os.fsdecode(dir+file))
+    if (random): shuffle(filenames)
+    return filenames
 
 def load_data(path, show_hist=False, one_hot=True, type='svm'):
     X = []
@@ -66,6 +75,60 @@ def load_data(path, show_hist=False, one_hot=True, type='svm'):
         lb = LabelBinarizer().fit(labels)
         Y = lb.transform(Y)
     return X, Y
+
+def flip_and_save(path, i):
+    print (path)
+    img = cv2.imread(path)
+    img = cv2.flip(img, 1)
+    #cv2.imshow('img', img)
+    #cv2.waitKey(0)
+    cv2.imwrite('ll_'+str(i)+'.png', img)
+
+def flip_signs():
+    i=0
+    filenames = []
+    dir = os.fsencode('C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/train_test/19/')
+    for file in os.listdir(dir):
+        filename = os.fsdecode(file)
+        if filename.endswith(".ppm"): 
+            filenames.append(os.fsdecode(dir+file))
+    for path in filenames:
+        flip_and_save(path, i)
+        i += 1
+
+def rotate_img(img):
+    random_degree = random.uniform(-15,15)
+    return transform.rotate(img, random_degree)
+
+def add_noise(img):
+    return util.random_noise(img)
+
+def translate_img(img):
+    rows, cols = img.shape
+    tx = random.uniform(-5, 5)
+    ty = random.uniform(-5, 5)
+    M = np.float32([[1,0,int(tx)], [0,1,int(ty)]])
+    img = cv2.warpAffine(img, M, (cols, rows))
+    return img
+
+filenames = get_images_paths('C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/train_test/7/')
+transformation = {
+    'rotation': rotate_img,
+    'noise': add_noise,
+    'translation': translate_img
+    }
+transformations_to_apply = random.randint(1, len(transformation))
+
+for i in enumerate (100):
+    rand_path = random.choice(filenames)
+    img = cv2.imread(rand_path)
+    img = cv2.resize(img, (32,32))
+    shuffle(transformation)
+    item = 0
+    for j in range (transformations_to_apply):
+        img = transformation[item](img)
+    cv2.imwrite('C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/train_test/7/new'+str(i)+'.jpg', img)
+
 
 #########################################################################
 
@@ -233,26 +296,6 @@ def predict_svm(image, classifier, data_scaler, hog):
     trans_data = data_scaler.transform(img_hog.reshape(1,-1))
     prediction = classifier.predict(trans_data)
     return prediction
-
-def flip_and_save(path, i):
-    print (path)
-    img = cv2.imread(path)
-    img = cv2.flip(img, 1)
-    #cv2.imshow('img', img)
-    #cv2.waitKey(0)
-    cv2.imwrite('ll_'+str(i)+'.png', img)
-
-def flip_signs():
-    i=0
-    filenames = []
-    dir = os.fsencode('C:/Users/Michau/Dropbox/Studia/MGR/PRACA MGR/SignRecognition/sign-recognition/train_test/19/')
-    for file in os.listdir(dir):
-        filename = os.fsdecode(file)
-        if filename.endswith(".ppm"): 
-            filenames.append(os.fsdecode(dir+file))
-    for path in filenames:
-        flip_and_save(path, i)
-        i += 1
 
 #########################################################################
 

@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import cv2, time, os, glob
-from classification import load_clf_svm, initialize_hog, predict_svm, load_model, predict_tf, return_model_tf
+from classification import load_clf_svm, initialize_hog, predict_svm, load_model, predict_tf, return_model_tf, get_images_paths
 from matplotlib import pyplot as plt
 from random import shuffle
 
@@ -286,7 +286,7 @@ def detect_signs(frame, exe_mode = "normal"):
     print ("______________________________________________________")
     if (exe_mode == 'test'): cv2.waitKey(0)
     return execution_time
-    
+ 
 ##############################################################################################################
 #Signs description dictionary
 sign_desc = {'0':'20', '1':'30', '2':'40', '3':'50', '4':'60', '5':'70', '6':'80', '7':'90', '8':'100', '9':'110', '10':'120', '11':'Zakaz wyprz.', '12':'Ustap piersz.',
@@ -348,13 +348,7 @@ with tf.Session(graph = graph) as sess:
     '''
     ##############################################################################################################
     #Snapshoty
-    filenames = []
-    dir = os.fsencode(dir_validation_img)
-    for file in os.listdir(dir):
-        filename = os.fsdecode(file)
-        if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".ppm"): 
-            filenames.append(os.fsdecode(dir+file))
-    #shuffle(filenames)
+    filenames = get_images_paths(dir_validation_img)
     detection_time = []
 
     for file in filenames:
