@@ -1,0 +1,15 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+*.wmv
+*.png
+*.ppm
+*.jpg
+*.csv
+*.zip
+/mask_yellow.txt
+/mask_red.txt
+/mask_blue.txt
+/masks.txt
+*.pyc
