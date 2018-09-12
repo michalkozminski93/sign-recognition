@@ -7,97 +7,65 @@
 	height: '200dp'
 
 <MyLayout>:
-	hMin: hMin
-	sMin: sMin
-	vMin: vMin
-	hMax: hMax
-	sMax: sMax
-	vMax: vMax
-	img1: imgColour
-	img2: imgHsv
-	redMask: redMask
-	yellowMask: yellowMask
-	blueMask: blueMask
-
-	rows: 6
-	padding: 10
-	spacing: 10
-
 	BoxLayout:
 		size_hint_y: .1
 		Label:
-			text: 'hMin {}'.format(hMin.value)
+			text: 'hMin'
 		Label:
-			text: 'sMin {}'.format(sMin.value)
+			text: 'sMin'
 		Label:
-			text: 'vMin {}'.format(vMin.value)
+			text: 'vMin'
 	BoxLayout:
 		size_hint_y: .1
 		MySlider:
-			id: hMin
 			value: 1
 		MySlider:
-			id: sMin
 			value: 1
 		MySlider:
-			id: vMin
 			value: 1
 	BoxLayout:
 		size_hint_y: .1
 		Label:
-			text: 'hMax {}'.format(hMax.value)
+			text: 'hMax'
 		Label:
-			text: 'sMax {}'.format(sMax.value)
+			text: 'sMax'
 		Label:
-			text: 'vMax {}'.format(vMax.value)
+			text: 'vMax'
 	BoxLayout:
 		size_hint_y: .1
 		MySlider:
-			id: hMax
 			value: 1
 		MySlider:
-			id: sMax
 			value: 1
 		MySlider:
-			id: vMax
 			value: 1
 	BoxLayout:
 		Image:
-			id: imgColour
 			size_hint_x: .475
 		Image:
-			id: imgHsv
 			size_hint_x: .475
 	BoxLayout:
 		size_hint_y: .1
 		Button:
 			text: "Update"
-			on_press: root.updateMask()
 		Button:
 			text: "Save"
-			on_press: root.saveValues()
 		Button:
 			text: "Load"
-			on_press: root.loadValues()
 		Button:
 			text: "Back"
-			on_press: root.previousImage()
 		Button:
 			text: "Next"
-			on_press: root.nextImage()
 		ToggleButton:
-			id: redMask
 			size_hint_x: .1
 			text: "R"
 			group: "color"
 			state: "down"
 		ToggleButton:
-			id: yellowMask
 			size_hint_x: .1
 			text: "Y"
 			group: "color"
 		ToggleButton:
-			id: blueMask
 			size_hint_x: .1
 			text: "B"
 			group: "color"
