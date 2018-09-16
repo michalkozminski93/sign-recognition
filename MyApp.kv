@@ -1,71 +1,25 @@
-<MySlider@Slider>:
-	range: (0,255)
-	step: 1
-	orientation: "horizontal"
-	size_hint_x: .1
-	width: '40dp'
-	height: '200dp'
+<AppLayout>:
 
-<MyLayout>:
-	BoxLayout:
-		size_hint_y: .1
-		Label:
-			text: 'hMin'
-		Label:
-			text: 'sMin'
-		Label:
-			text: 'vMin'
-	BoxLayout:
-		size_hint_y: .1
-		MySlider:
-			value: 1
-		MySlider:
-			value: 1
-		MySlider:
-			value: 1
-	BoxLayout:
-		size_hint_y: .1
-		Label:
-			text: 'hMax'
-		Label:
-			text: 'sMax'
-		Label:
-			text: 'vMax'
-	BoxLayout:
-		size_hint_y: .1
-		MySlider:
-			value: 1
-		MySlider:
-			value: 1
-		MySlider:
-			value: 1
-	BoxLayout:
-		Image:
-			size_hint_x: .475
-		Image:
-			size_hint_x: .475
-	BoxLayout:
-		size_hint_y: .1
-		Button:
-			text: "Update"
-		Button:
-			text: "Save"
-		Button:
-			text: "Load"
-		Button:
-			text: "Back"
-		Button:
-			text: "Next"
-		ToggleButton:
-			size_hint_x: .1
-			text: "R"
-			group: "color"
-			state: "down"
-		ToggleButton:
-			size_hint_x: .1
-			text: "Y"
-			group: "color"
-		ToggleButton:
-			size_hint_x: .1
-			text: "B"
-			group: "color"
+    BoxLayout:
+        orientation: "horizontal"
+
+        KivyCamera:
+            id: cam
+			size_hint_x: 0.9
+
+        BoxLayout:
+            orientation: "vertical"
+            height: 20
+            size_hint_x: 0.1
+
+            Button:
+                id: butt_start
+                size_hint_y: 0.1
+                text: "start"
+                on_press: root.dostart()
+
+            Button:
+                id: butt_exit
+                text: "quit"
+                size_hint_y: 0.1
+                on_press: root.doexit()
